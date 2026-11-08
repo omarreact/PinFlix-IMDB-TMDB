@@ -1,0 +1,11 @@
+{
+  "name": "PinFlix",
+  "short_name": "PinFlix",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07070a",
+  "theme_color": "#07070a",
+  "description": "Movie and TV discovery powered by TMDB metadata.",
+  "icons": [{"src":"assets/icons/pinflix.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
