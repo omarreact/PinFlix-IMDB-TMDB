@@ -1,0 +1,6 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import { TmdbClient, TmdbError } from '../assets/js/services/tmdb.js';
+test('TMDB client sends bearer authorization',async()=>{let seen;const fetchImpl=async(url,opts)=>{seen={url:String(url),opts};return{ok:true,json:async()=>({results:[]})}};const c=new TmdbClient('abc',fetchImpl);await c.searchMulti('matrix');assert.equal(seen.opts.headers.Authorization,'Bearer abc');assert.match(seen.url,/search\/multi/)});
+test('TMDB client filters people from multi-search',async()=>{const fetchImpl=async()=>({ok:true,json:async()=>({results:[{media_type:'person'},{media_type:'movie',id:1},{media_type:'tv',id:2}]})});const c=new TmdbClient('abc',fetchImpl);assert.equal((await c.searchMulti('x')).length,2)});
+test('TMDB client reports HTTP failures',async()=>{const fetchImpl=async()=>({ok:false,status:401,json:async()=>({status_message:'Invalid token'})});await assert.rejects(()=>new TmdbClient('x',fetchImpl).searchMulti('x'),e=>e instanceof TmdbError&&e.status===401)});
+test('TMDB client rejects missing token',async()=>{await assert.rejects(()=>new TmdbClient('',async()=>{}).searchMulti('x'),TmdbError)});
+test('TMDB image helper builds canonical poster URL',()=>{const c=new TmdbClient('x',async()=>{});assert.equal(c.image('/abc.jpg','w342'),'https://image.tmdb.org/t/p/w342/abc.jpg')});
