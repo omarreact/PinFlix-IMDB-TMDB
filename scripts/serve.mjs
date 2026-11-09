@@ -4,7 +4,7 @@ import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Serve the compiled site, including its embedded catalogue, after npm run build.
-const root = fileURLToPath(new URL('../dist/', import.meta.url));
+const root = resolve(fileURLToPath(new URL('../dist/', import.meta.url)));
 const args = process.argv.slice(2);
 const named = args.find(arg => arg.startsWith('--port='));
 const flag = args.indexOf('--port');
