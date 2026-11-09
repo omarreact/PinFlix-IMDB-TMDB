@@ -1,7 +1,7 @@
 import { clampText, normalizeImdbId, providerTemplateIsValid } from './lib/validation.js';
 import { storage } from './services/storage.js';
 import { TmdbClient, TmdbError } from './services/tmdb.js';
-import { buildProviderUrl } from './services/providers.js';
+import { buildProviderUrl, buildBuiltinProviderUrl, BUILTIN_PROVIDERS } from './services/providers.js';
 import { applyPlaybackSecurity, providerForIndex } from './services/player-security.js';
 import { DEV_TMDB_READ_ACCESS_TOKEN, DEV_TMDB_API_KEY } from './dev-config.js';
 
@@ -32,9 +32,13 @@ function setStatus(message = '', tone = 'info') {
 function configureClient() {
   // Keep existing users working when their token is already saved locally.
   // New installations can use the explicit development-only configuration.
-  const token = DEV_TMDB_READ_ACCESS_TOKEN.trim() || storage.getToken();
+  const token = DEV_TMDB_READ_ACCESS_TOKEN.trim();
   const apiKey = DEV_TMDB_API_KEY.trim();
-  state.client = (token || apiKey) ? new TmdbClient(token, fetch, { apiKey }) : null;
+  const legacyToken = storage.getToken();
+  // Prefer the explicit app configuration; legacy per-browser storage is only a fallback.
+  state.client = token || apiKey
+    ? new TmdbClient(token, fetch, { apiKey })
+    : (legacyToken ? new TmdbClient(legacyToken) : null);
   els.searchBtn.disabled = !state.client;
 }
 
@@ -186,8 +190,12 @@ function renderPlayback() {
   const item = state.playback;
   const primary = storage.getProviderTemplate();
   const backup = storage.getBackupProviderTemplate();
+  const customProviderConfigured = Boolean(primary || backup);
   const template = providerForIndex(primary, backup, state.providerIndex);
-  const url = buildProviderUrl(template, item);
+  const builtinProvider = BUILTIN_PROVIDERS[state.providerIndex] || BUILTIN_PROVIDERS[0];
+  const url = customProviderConfigured
+    ? buildProviderUrl(template, item)
+    : buildBuiltinProviderUrl(builtinProvider.id, item);
   els.playerSection.hidden = false;
   els.playerTitle.textContent = item.mediaType === 'tv'
     ? `${item.title} · S${item.season}E${item.episode}`
@@ -197,19 +205,32 @@ function renderPlayback() {
   els.frame.src = 'about:blank';
   applyPlaybackSecurity(els.frame, state.compatibilityMode);
   els.frame.src = url || 'about:blank';
-  $('#provider-empty').hidden = Boolean(url);
+  const emptyNotice = $('#provider-empty');
+  emptyNotice.hidden = Boolean(url);
+  if (!url) {
+    emptyNotice.textContent = item.imdbId
+      ? 'No playable URL could be generated. Check the source configuration.'
+      : 'TMDB has no IMDb ID for this title. Choose another movie or show.';
+  }
 
-  const hasAlternative = Boolean(primary && backup);
+  const hasAlternative = customProviderConfigured
+    ? Boolean(primary && backup)
+    : BUILTIN_PROVIDERS.length > 1;
   els.switchProvider.hidden = !hasAlternative || !url;
-  els.switchProvider.textContent = state.providerIndex === 0 ? 'Try another server' : 'Return to primary server';
+  els.switchProvider.textContent = state.providerIndex === 0
+    ? 'Try another server'
+    : 'Return to primary server';
   els.compatibility.hidden = !url;
   els.compatibility.textContent = state.compatibilityMode ? 'Return to restricted mode' : 'Compatibility playback';
   els.compatibility.setAttribute('aria-pressed', String(state.compatibilityMode));
   els.securityNote.hidden = !url;
   els.securityNote.dataset.risk = state.compatibilityMode ? 'warning' : 'safe';
+  const providerLabel = customProviderConfigured
+    ? (state.providerIndex === 0 ? 'Custom primary' : 'Custom backup')
+    : builtinProvider.label;
   els.securityNote.textContent = state.compatibilityMode
-    ? 'Compatibility mode removes iframe sandbox restrictions. The external provider may display ads, open popups, or attempt redirects.'
-    : 'Restricted mode blocks embedded popups and top-page navigation. If the provider says “Sandboxing is not allowed”, choose Compatibility playback to retry.';
+    ? providerLabel + ': Compatibility mode removes iframe sandbox restrictions; ads, popups or redirects are possible.'
+    : providerLabel + ': Restricted mode blocks popups and top-page navigation. If the player says “Sandboxing is not allowed”, choose Compatibility playback.';
 }
 
 function playActive(season, episode) {
@@ -226,7 +247,8 @@ function playActive(season, episode) {
 function switchPlaybackProvider() {
   const primary = storage.getProviderTemplate();
   const backup = storage.getBackupProviderTemplate();
-  if (!primary || !backup || !state.playback) return;
+  if (!state.playback) return;
+  if ((primary || backup) && (!primary || !backup)) return;
   state.providerIndex = state.providerIndex === 0 ? 1 : 0;
   renderPlayback();
   setStatus(state.providerIndex === 0 ? 'Primary playback provider selected.' : 'Backup playback provider selected.', 'info');

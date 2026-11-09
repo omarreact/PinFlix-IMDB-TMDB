@@ -46,3 +46,9 @@ The embedded player remains **sandboxed by default**, blocking popups and top-le
 You can configure a second authorized HTTPS provider template in Settings. **Try another server** switches manually between primary and backup without changing the selected movie/episode or watch history. Automatic detection of cross-origin iframe playback failures is not possible reliably from this static page.
 
 The GitHub Pages site does not contain the TMDB credentials supplied privately for development; its direct development credential placeholders are empty. Embedding them in a public static build exposes them to visitors.
+
+## GitHub Pages catalogue & built-in playback (2026-11-09)
+
+The GitHub Pages build now includes a **public development-only TMDB v3 API key** to resolve the previously empty catalogue for new visitors. This key is deliberately exposed in static JavaScript, as the owner requested, and can be copied by any visitor; **do not use a private bearer token in the public build**. Rotate or restrict the v3 key before any non-development release. Live TMDB availability is checked from CI with `scripts/smoke-tmdb.mjs`.
+
+The app now derives the two default embedded video sources from validated IMDb IDs, matching the user's working standalone HTML. Visitors do not need to type provider URL templates to show a player. Settings can optionally override both default sources. The default iframe remains sandboxed, and compatibility playback is explicitly opt-in because it removes popup/navigation protection. Provider availability and actual video playback cannot be established by a successful metadata request or CI build.
