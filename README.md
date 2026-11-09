@@ -1,43 +1,42 @@
 # PinFlix IMDb / TMDB
 
-A static GitHub Pages movie and TV discovery site. The frontend uses TMDB metadata, IMDb identifiers and user-initiated third-party iframe players. It keeps watch history and watchlists in browser storage.
+A modular, vanilla-JavaScript static site for GitHub Pages and Vercel. TMDB provides live movie/TV metadata, IMDb IDs map titles to the built-in MultiEmbed and VSEmbed iframe sources, and watchlist/history stay in localStorage.
 
-## Zero-configuration visitor experience
+## Architecture
 
-**No visitor setup page, credential prompt, playback URL input, or Settings dialog.** The source configuration belongs in the repository:
-- `assets/js/dev-config.js`: TMDB development **v3 browser API key** (already included by the owner; it is visible to every public visitor). Do **not** publish the private TMDB Read Access Token here.
-- `assets/js/services/providers.js`: fixed primary/backup player URLs for MultiEmbed and VSEmbed.
-- `assets/js/app.js`: automatic catalogue, movie/TV details, episode navigation, video frame, manual **Try another server**, history/watchlist and browser UI.
-- `assets/js/services/player-security.js`: restricted iframe by default. **Compatibility playback** is an explicit temporary opt-in for providers that reject sandbox restrictions. It can enable unwanted ads, popups or navigation; it does not remove advertising.
+- `assets/js/app.js`: discover/search UI, accessible title details, TV episodes, playback and stored-title reopening.
+- `assets/js/dev-config.js`: intentionally public **TMDB v3 development API key**. Public static JavaScript cannot keep secrets. Never commit a private bearer token.
+- `assets/js/services/tmdb.js`: live TMDB requests first, then same-origin snapshot fallback.
+- `assets/js/services/providers.js`: fixed MultiEmbed/VSEmbed movie and episode URLs. There are **no** visitor Settings fields or user-entered player URLs.
+- `assets/js/services/player-security.js`: restricted sandbox by default; user-confirmed session-only compatibility mode can enable provider ads, popups or redirects.
+- `assets/js/services/storage.js`: browser-local watchlist and episode-specific history with stable identity keys.
 
-The imported example file `PinFlix_Dev_Compatibility_Fix.html` supplied the reference player URL patterns and direct-code setup. The repository retains its original PinFlix design and modular architecture instead of replacing it with the example's page layout.
+## Development and deployment
 
-## GitHub Pages TMDB fallback
-
-Live TMDB calls remain the preferred source. When the user's Android network/browser cannot reach `api.themoviedb.org`, the app loads `assets/data/tmdb-catalogue.json` **from the same GitHub Pages origin**. GitHub Actions builds this limited trending/popular snapshot at deployment time. It includes cached metadata and IMDb IDs, and generates episode-number navigation from cached season counts. Search in fallback mode only covers those cached titles.
-
-This does not unblock direct TMDB access, TMDB poster/CDN access, or third-party video servers. A cached catalogue is not a complete TMDB mirror. The origin of a streaming popup or in-frame advertisement is independent from TMDB metadata.
-
-## Run and validate
+Node.js 20+ is supported. In the repository root:
 
 ```bash
 npm run check
 npm run build
-npm run dev -- --port=4173
+npm run dev
 ```
 
-The pull-request GitHub Actions workflow runs tests, a live metadata smoke check, builds the static output and generates the snapshot. It does **not** deploy pull requests. The `main` push workflow publishes GitHub Pages.
+`npm run build` creates a **fully deployable `dist/`**: copies the static assets, fetches the public TMDB trending/popular catalogue, includes a same-origin JSON snapshot and embeds an inert `<template id="pinflix-embedded-catalogue">` in `dist/index.html`. The public TMDB v3 key and reachable TMDB endpoints are required during build; the output never includes a private bearer token.
 
-## Security / limitations
+`npm run dev` serves the built `dist/` at `http://127.0.0.1:4173` (use `npm run dev -- --port=4174` to change port). Rebuild to refresh the local catalogue.
 
-- Public GitHub Pages **cannot keep client-side keys secret**. Rotate or restrict the development v3 key before production; never commit the private bearer token.
-- All third-party video players are external to PinFlix and may have ads or fail under sandboxing. Actual video playback is not verified by a metadata smoke test.
-- Browser history and watchlist require no account and remain device-local.
-- Provider switching is user-initiated. Cross-origin iframes do not reliably expose playback-health signals for automatic failover.
-- The project uses safe text rendering for TMDB content, a Content Security Policy, and sandbox restrictions on player frames.
+`npm run build:vercel` uses the identical clean build. `vercel.json` specifies `dist` as Vercel's output. GitHub Actions runs checks, a live TMDB smoke test and the same `npm run build`, then deploys that tested `dist` artifact to GitHub Pages on `main`.
 
-Native Android/Windows packaging is not part of this static site change; see `docs/NATIVE.md`.
+## Browser behavior and limitations
 
-## Embedded Android catalogue resilience
+- Live TMDB is preferred. If unavailable, the embedded snapshot supplies a **limited** cached set for discovery, search, details and generic season/episode counts.
+- Cached mode shows a clear notice and local placeholder posters, without requiring `image.tmdb.org`. Live-mode images also fall back to the placeholder on error.
+- History and Watchlist title buttons reopen saved entries; saved TV history attempts to restore the recorded season/episode. Remove and Clear local library are preserved.
+- Playback stays within third-party iframes; the app does not host movies or verify their availability. **Try another server** is manual because a cross-origin iframe cannot reliably report playback health. Compatibility mode requires a warning confirmation and is not an ad blocker.
+- The versioned service worker caches only PinFlix's own assets and does not turn failed JSON requests into HTML.
 
-On GitHub Pages, the CI job now embeds the same non-executable JSON snapshot inside the generated `dist/index.html` as a `<template>` data block, in addition to publishing `assets/data/tmdb-catalogue.json`. The browser seeds its metadata fallback directly from the delivered document, so an unavailable TMDB API *and* a separately blocked JSON request cannot both prevent the initial catalogue from loading. Direct TMDB remains the preferred source when available. The source `index.html` stays lightweight; injection is performed only in the deployed build artifact, after fetching the latest snapshot. The iframe/player code and UI remain unchanged.
+## Verification
+
+`npm run check` includes validation, provider URL tests, sandbox alignment, cached catalogue injection and escaping, and library restoration checks. A successful build or HTTP status is not evidence of real video playback: test both servers, device responsiveness and actual movie/TV behavior manually.
+
+No React, Next.js, runtime backend or Cloudflare proxy is required. Native packaging is separate; see `docs/NATIVE.md`.

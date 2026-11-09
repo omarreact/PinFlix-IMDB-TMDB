@@ -22,7 +22,7 @@ const fixtures = {
 };
 
 const fakeFetch = async (url) => {
-  const path = new URL(url).pathname.replace(/^\/3/, '');
+    const path = new URL(url).pathname.slice(2);
   const json = fixtures[path];
   return { ok: Boolean(json), status: json ? 200 : 404, json: async () => json };
 };
@@ -128,4 +128,27 @@ test('an embedded catalogue provides results when both TMDB and the JSON endpoin
   assert.equal((await client.searchMulti('First')).length, 2);
   assert.equal((await client.details('movie', 1)).external_ids.imdb_id, 'tt1234567');
   assert.equal(requests, 1, 'only the first direct TMDB attempt should occur');
+});
+
+test('catalogue HTML embedding escapes markup without exposing the key', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'pinflix-safe-html-'));
+  const htmlFile = join(temp, 'index.html');
+  const jsonFile = join(temp, 'catalogue.json');
+  const marker = '<script type="module" src="assets/js/app.js"></script>';
+  const malicious = '</template><script>window.xss=1</script>';
+  const fetchImpl = async url => {
+    const path = new URL(url).pathname.slice(2);
+    if (path === '/trending/all/week') return { ok: true, json: async () => ({ results: [{ id: 1, media_type: 'movie', title: malicious }] }) };
+    if (path === '/movie/popular' || path === '/tv/popular') return { ok: true, json: async () => ({ results: [] }) };
+    return { ok: true, json: async () => ({ id: 1, title: malicious, external_ids: { imdb_id: 'tt1234567' } }) };
+  };
+  try {
+    await writeFile(htmlFile, '<html><body>' + marker + '</body></html>');
+    await buildCatalogueSnapshot({ fetchImpl, apiKey: 'fixture-key', outputPath: jsonFile, htmlPath: htmlFile });
+    const html = await readFile(htmlFile, 'utf8');
+    assert.ok(html.includes('<template id="pinflix-embedded-catalogue">'));
+    assert.ok(!html.includes(malicious));
+    assert.ok(!html.includes('fixture-key'));
+    assert.ok(html.includes(marker));
+  } finally { await rm(temp, { recursive: true, force: true }); }
 });

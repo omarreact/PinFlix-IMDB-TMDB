@@ -1,8 +1,8 @@
 // Live validation; never print API credentials or request URLs.
-import { DEV_TMDB_API_KEY, DEV_TMDB_READ_ACCESS_TOKEN } from '../assets/js/dev-config.js';
+import { DEV_TMDB_API_KEY } from '../assets/js/dev-config.js';
 import { TmdbClient } from '../assets/js/services/tmdb.js';
 
-const client = new TmdbClient(DEV_TMDB_READ_ACCESS_TOKEN, fetch, { apiKey: DEV_TMDB_API_KEY });
+const client = new TmdbClient('', fetch, { apiKey: DEV_TMDB_API_KEY });
 const controller = new AbortController();
 const timeout = setTimeout(() => controller.abort(), 16000);
 try {

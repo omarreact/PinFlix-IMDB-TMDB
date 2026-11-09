@@ -25,19 +25,13 @@ export function clampText(value, max = 500) {
   const text = String(value ?? '').trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
-
-export function providerTemplateIsValid(value = '') {
-  const template = String(value).trim();
-  if (!template) return true;
-  try {
-    const test = template
-      .replaceAll('{imdb}', 'tt1375666')
-      .replaceAll('{tmdb}', '27205')
-      .replaceAll('{season}', '1')
-      .replaceAll('{episode}', '1');
-    const url = new URL(test);
-    return url.protocol === 'https:';
-  } catch {
-    return false;
-  }
+ 
+// Restore a saved history/watchlist row without trusting corrupted localStorage values.
+export function librarySelection(item) {
+  const mediaType = normalizeMediaType(item?.mediaType);
+  const tmdbId = positiveInt(item?.tmdbId);
+  if (!mediaType || !tmdbId) return null;
+  const season = mediaType === 'tv' ? positiveInt(item?.season, { max: 1000 }) : null;
+  const episode = mediaType === 'tv' ? positiveInt(item?.episode, { max: 10000 }) : null;
+  return { mediaType, tmdbId, season: season && episode ? season : null, episode: season && episode ? episode : null };
 }

@@ -22,7 +22,6 @@ jobs:
       - run: npm run check
       - run: node scripts/smoke-tmdb.mjs
       - run: npm run build
-      - run: node scripts/catalogue-snapshot.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: pinflix-web

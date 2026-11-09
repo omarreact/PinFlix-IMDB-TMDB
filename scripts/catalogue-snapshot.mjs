@@ -1,28 +1,25 @@
 // Build a same-origin TMDB snapshot for browsers that cannot reach api.themoviedb.org.
-// This runs on GitHub Actions, not in the visitor's browser. Never log credentials or URLs.
+// Runs during npm run build (local, GitHub Actions or Vercel). Never log credentials or URLs.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DEV_TMDB_API_KEY, DEV_TMDB_READ_ACCESS_TOKEN } from '../assets/js/dev-config.js';
+import { DEV_TMDB_API_KEY } from '../assets/js/dev-config.js';
 
 const TMDB_API = 'https://api.themoviedb.org/3';
 
 export async function buildCatalogueSnapshot({
   fetchImpl = fetch,
   apiKey = DEV_TMDB_API_KEY,
-  token = DEV_TMDB_READ_ACCESS_TOKEN,
   outputPath = 'dist/assets/data/tmdb-catalogue.json',
   htmlPath = null,
   maxTitles = 64
 } = {}) {
-  if (!apiKey && !token) throw new Error('No TMDB credentials available for snapshot.');
+  if (!apiKey) throw new Error('TMDB public v3 API key is required to build the catalogue.');
   const request = async (path, params = {}) => {
     const url = new URL(TMDB_API + path);
-    if (!token) url.searchParams.set('api_key', apiKey);
+    url.searchParams.set('api_key', apiKey);
     for (const [key, val] of Object.entries(params)) url.searchParams.set(key, String(val));
-    const headers = { Accept: 'application/json' };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const response = await fetchImpl(url, { headers, signal: AbortSignal.timeout(14000) });
+    const response = await fetchImpl(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(14000) });
     if (!response.ok) throw new Error(`TMDB snapshot API HTTP ${response.status}`);
     return response.json();
   };

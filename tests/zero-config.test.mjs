@@ -29,6 +29,7 @@ test('app never reads user-selected provider URLs or opens a settings modal', as
   ]) assert.equal(app.includes(obsolete), false, obsolete);
   assert.ok(app.includes('buildBuiltinProviderUrl('));
   assert.ok(app.includes('DEV_TMDB_API_KEY'));
+  assert.ok(app.includes('reopenStoredItem('));
   assert.ok(app.includes("catalogueUrl: './assets/data/tmdb-catalogue.json'"));
 });
 
@@ -42,4 +43,15 @@ test('codebase-defined providers generate movie and episode URLs without any set
   assert.equal(buildBuiltinProviderUrl('vsembed',movie), 'https://vsembed.ru/embed/movie?imdb=tt1375666');
   assert.equal(buildBuiltinProviderUrl('multiembed',tv), 'https://multiembed.mov/?video_id=tt0944947&s=2&e=3');
   assert.equal(buildBuiltinProviderUrl('vsembed',tv), 'https://vsembed.ru/embed/tv?imdb=tt0944947&season=2&episode=3');
+});
+
+test('zero-config code contains no legacy settings/storage helpers', async () => {
+  const storage = await source('assets/js/services/storage.js');
+  const css = await source('assets/css/styles.css');
+  const config = await source('assets/js/dev-config.js');
+  for (const fragment of ['getToken(', 'setToken(', 'getProviderTemplate(', 'getBackupProviderTemplate(']) {
+    assert.ok(!storage.includes(fragment), fragment);
+  }
+  assert.ok(!css.includes('.settings-dialog'));
+  assert.ok(!config.includes('DEV_TMDB_READ_ACCESS_TOKEN'));
 });

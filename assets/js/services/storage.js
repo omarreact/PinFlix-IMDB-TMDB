@@ -1,11 +1,8 @@
 import { safeJsonParse } from '../lib/validation.js';
 
 const KEYS = {
-  token: 'pinflix.tmdb-token',
   history: 'pinflix.history.v2',
-  watchlist: 'pinflix.watchlist.v2',
-  providerTemplate: 'pinflix.provider-template.v1',
-  backupProviderTemplate: 'pinflix.backup-provider-template.v1'
+  watchlist: 'pinflix.watchlist.v2'
 };
 
 function storageAvailable() {
@@ -31,30 +28,6 @@ function writeArray(key, value) {
 }
 
 export const storage = {
-  getToken() {
-    return storageAvailable() ? localStorage.getItem(KEYS.token) || '' : '';
-  },
-  setToken(value) {
-    if (!storageAvailable()) return;
-    if (value) localStorage.setItem(KEYS.token, value.trim());
-    else localStorage.removeItem(KEYS.token);
-  },
-  getProviderTemplate() {
-    return storageAvailable() ? localStorage.getItem(KEYS.providerTemplate) || '' : '';
-  },
-  setProviderTemplate(value) {
-    if (!storageAvailable()) return;
-    if (value) localStorage.setItem(KEYS.providerTemplate, value.trim());
-    else localStorage.removeItem(KEYS.providerTemplate);
-  },
-  getBackupProviderTemplate() {
-    return storageAvailable() ? localStorage.getItem(KEYS.backupProviderTemplate) || '' : '';
-  },
-  setBackupProviderTemplate(value) {
-    if (!storageAvailable()) return;
-    if (value) localStorage.setItem(KEYS.backupProviderTemplate, value.trim());
-    else localStorage.removeItem(KEYS.backupProviderTemplate);
-  },
   getHistory() { return readArray(KEYS.history); },
   getWatchlist() { return readArray(KEYS.watchlist); },
   addHistory(item) {

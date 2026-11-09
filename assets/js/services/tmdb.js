@@ -27,17 +27,23 @@ export class TmdbClient {
       if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
     });
     let response;
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    signal?.addEventListener('abort', onAbort, { once: true });
+    const timeout = setTimeout(() => controller.abort(), 8500);
     try {
       const headers = { Accept: 'application/json' };
       if (this.token) headers.Authorization = `Bearer ${this.token}`;
-      const timeout = AbortSignal.timeout(8500);
-      const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-      response = await this.fetchImpl(url, { headers, signal: requestSignal });
+      response = await this.fetchImpl(url, { headers, signal: controller.signal });
     } catch (error) {
       if (signal?.aborted) throw error;
-      if (error?.name === 'TimeoutError' || error?.name === 'AbortError')
+      if (controller.signal.aborted)
         throw new TmdbError('TMDB request timed out.');
       throw new TmdbError('Network error while contacting TMDB.');
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
     }
     if (!response.ok) {
       let detail = '';
@@ -83,8 +89,10 @@ export class TmdbClient {
         this.usingSnapshot = true;
         this.snapshotGeneratedAt = snapshot.generated_at || '';
         return fallback(snapshot);
-      } catch {
-        // Preserve original live error if GitHub Pages also cannot serve snapshot.
+      } catch (snapshotError) {
+        // Cached selection exists but does not include the requested item.
+        if (snapshotError instanceof TmdbError) throw snapshotError;
+        // Preserve the original request failure when the snapshot itself is missing.
         throw error;
       }
     }
@@ -139,7 +147,7 @@ export class TmdbClient {
           season_number: Number(seasonNumber),
           episodes: Array.from({ length: Math.min(Number(season.episode_count) || 0, 300) }, (_, i) => ({
             episode_number: i + 1,
-            name: `Episode ${i + 1}`,
+            name: `Episode ${i + 1} (cached)`,
             overview: 'Episode synopsis unavailable while TMDB is unreachable.'
           }))
         };

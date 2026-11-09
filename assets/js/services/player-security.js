@@ -6,8 +6,3 @@ export function applyPlaybackSecurity(frame, compatibilityMode = false) {
   if (compatibilityMode) frame.removeAttribute('sandbox');
   else frame.setAttribute('sandbox', RESTRICTED_SANDBOX);
 }
-
-export function providerForIndex(primary, backup, index = 0) {
-  if (index === 1 && backup) return backup;
-  return primary || backup || '';
-}

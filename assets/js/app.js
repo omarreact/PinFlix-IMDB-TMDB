@@ -1,9 +1,9 @@
-import { clampText, normalizeImdbId } from './lib/validation.js';
+import { clampText, normalizeImdbId, librarySelection } from './lib/validation.js';
 import { storage } from './services/storage.js';
 import { TmdbClient, TmdbError } from './services/tmdb.js';
 import { buildBuiltinProviderUrl, BUILTIN_PROVIDERS } from './services/providers.js';
 import { applyPlaybackSecurity } from './services/player-security.js';
-import { DEV_TMDB_READ_ACCESS_TOKEN, DEV_TMDB_API_KEY } from './dev-config.js';
+import { DEV_TMDB_API_KEY } from './dev-config.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -37,16 +37,9 @@ function showSnapshotNotice() {
 }
 
 function configureClient() {
-  // Keep existing users working when their token is already saved locally.
-  // New installations can use the explicit development-only configuration.
-  const token = DEV_TMDB_READ_ACCESS_TOKEN.trim();
+  // Only the public development v3 key is shipped to browsers.
   const apiKey = DEV_TMDB_API_KEY.trim();
-  const legacyToken = storage.getToken();
-  // Prefer the explicit app configuration; legacy per-browser storage is only a fallback.
-  // Explicit development configuration takes priority over stale per-browser tokens.
-  // Only fall back to legacy storage when neither development credential is present.
-  const effectiveToken = token || (apiKey ? '' : legacyToken);
-  state.client = new TmdbClient(effectiveToken, fetch, {
+  state.client = new TmdbClient('', fetch, {
     apiKey,
     catalogueUrl: './assets/data/tmdb-catalogue.json'
   });
@@ -69,10 +62,12 @@ function configureClient() {
 
 function poster(item) {
   const img = document.createElement('img');
+  const fallback = 'assets/icons/poster-placeholder.svg';
   img.loading = 'lazy';
-  img.alt = '';
-  img.src = state.client?.image(item.poster_path) || 'assets/icons/poster-placeholder.svg';
-  img.addEventListener('error', () => { img.src = 'assets/icons/poster-placeholder.svg'; }, { once: true });
+  img.alt = `Poster for ${titleFor(item)} (${yearFor(item)})`;
+  // In snapshot mode the TMDB image CDN may be blocked along with the API.
+  img.src = state.client?.usingSnapshot ? fallback : (state.client?.image(item.poster_path) || fallback);
+  img.addEventListener('error', () => { img.src = fallback; }, { once: true });
   return img;
 }
 
@@ -89,9 +84,11 @@ function createCard(item) {
   const overview = document.createElement('p'); overview.className = 'movie-card__overview'; overview.textContent = clampText(item.overview || 'No synopsis available.', 180);
   const actions = document.createElement('div'); actions.className = 'card-actions';
   const open = document.createElement('button'); open.className = 'button button--primary'; open.type = 'button'; open.textContent = item.media_type === 'tv' ? 'Browse episodes' : 'Open';
+  open.setAttribute('aria-label', `Open ${titleFor(item)}`);
   open.addEventListener('click', () => openDetails(item));
   const save = document.createElement('button'); save.className = 'button button--quiet'; save.type = 'button';
   save.textContent = storage.isSaved(item.media_type, item.id) ? 'Saved' : 'Add';
+  save.setAttribute('aria-label', `Toggle watchlist for ${titleFor(item)}`);
   save.addEventListener('click', () => {
     const result = storage.toggleWatchlist({ mediaType: item.media_type, tmdbId: item.id, title: titleFor(item), poster: item.poster_path || '', year: yearFor(item) });
     save.textContent = result.saved ? 'Saved' : 'Add'; renderLibrary();
@@ -108,7 +105,7 @@ async function loadCatalogue() {
   setStatus('Loading trending movies and TV…');
   try {
     const results = await state.client.trending(controller.signal);
-    els.results.replaceChildren(...results.map(createCard));
+    els.results.replaceChildren(...(results.length ? results.map(createCard) : [empty('No trending titles available right now.')]));
     els.summary.textContent = state.client.usingSnapshot
       ? `Cached movies and TV shows (${results.length} titles)`
       : (results.length ? 'Trending movies and TV shows from TMDB' : 'No titles returned.');
@@ -128,7 +125,9 @@ async function performSearch(event) {
   els.searchBtn.disabled = true; setStatus('Searching…');
   try {
     const results = await state.client.searchMulti(query, controller.signal);
-    els.results.replaceChildren(...results.map(createCard));
+    els.results.replaceChildren(...(results.length ? results.map(createCard) : [empty(state.client.usingSnapshot
+      ? 'No matches in the cached selection. Try a different title.'
+      : 'No matching movies or TV shows. Try another search.')]));
     els.summary.textContent = results.length
       ? `${results.length} movie/TV result${results.length === 1 ? '' : 's'} for “${query}”${state.client.usingSnapshot ? ' (cached)' : ''}`
       : `No movie or TV results for “${query}”${state.client.usingSnapshot ? ' in the cached selection' : ''}.`;
@@ -138,7 +137,12 @@ async function performSearch(event) {
   } finally { els.searchBtn.disabled = !state.client; }
 }
 
-async function openDetails(item) {
+function focusSection(heading) {
+  heading.focus({ preventScroll: true });
+  heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function openDetails(item, { season = null, episode = null } = {}) {
   setStatus('Loading title details…');
   try {
     const detail = await state.client.details(item.media_type, item.id);
@@ -147,8 +151,16 @@ async function openDetails(item) {
       imdbId: normalizeImdbId(detail.external_ids?.imdb_id || '') || ''
     };
     renderDetails(detail);
-    if (item.media_type === 'tv') await setupSeasons(detail);
-    else playActive();
+    if (item.media_type === 'tv') {
+      await setupSeasons(detail, { season, episode });
+      focusSection($('#detail-title'));
+    } else {
+      state.season = null;
+      els.seasons.closest('.field').hidden = true;
+      els.episodes.hidden = true;
+      playActive();
+      focusSection($('#player-title'));
+    }
     showSnapshotNotice();
   } catch (error) { setStatus(error.message || 'Unable to load title.', 'error'); }
 }
@@ -163,29 +175,49 @@ function renderDetails(detail) {
   els.trailer.href = trailer ? `https://www.youtube.com/watch?v=${encodeURIComponent(trailer.key)}` : '#';
 }
 
-async function setupSeasons(detail) {
+async function setupSeasons(detail, restore = {}) {
   const seasons = (detail.seasons || []).filter(s => s.season_number > 0 && s.episode_count > 0);
   els.seasons.replaceChildren(...seasons.map(season => {
-    const option = document.createElement('option'); option.value = String(season.season_number); option.textContent = season.name || `Season ${season.season_number}`; return option;
+    const option = document.createElement('option');
+    option.value = String(season.season_number);
+    option.textContent = season.name || `Season ${season.season_number} (${season.episode_count} episodes)`;
+    return option;
   }));
   els.seasons.closest('.field').hidden = seasons.length === 0;
-  els.episodes.hidden = false;
-  if (seasons.length) await loadSeason(Number(els.seasons.value));
+  els.episodes.hidden = seasons.length === 0;
+  if (seasons.length) {
+    const selected = seasons.find(s => s.season_number === restore.season)?.season_number ?? seasons[0].season_number;
+    els.seasons.value = String(selected);
+    await loadSeason(selected, selected === restore.season ? restore.episode : null);
+  } else {
+    els.episodes.replaceChildren(empty('No indexed seasons are available for this title.'));
+  }
 }
 
-async function loadSeason(seasonNumber) {
+async function loadSeason(seasonNumber, restoreEpisode = null) {
   if (!state.active || state.active.mediaType !== 'tv') return;
   setStatus(`Loading season ${seasonNumber}…`);
   try {
     const data = await state.client.season(state.active.tmdbId, seasonNumber);
     state.season = data;
-    els.episodes.replaceChildren(...(data.episodes || []).map(ep => {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'episode-card';
-      const strong = document.createElement('strong'); strong.textContent = `E${ep.episode_number} · ${clampText(ep.name || 'Episode', 100)}`;
-      const span = document.createElement('span'); span.textContent = clampText(ep.overview || ep.air_date || 'No description.', 150);
-      button.append(strong, span); button.addEventListener('click', () => playActive(seasonNumber, ep.episode_number)); return button;
-    }));
-    if (data.episodes?.length) playActive(seasonNumber, data.episodes[0].episode_number);
+    const episodes = data.episodes || [];
+    els.episodes.replaceChildren(...(episodes.length ? episodes.map(ep => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'episode-card';
+      const strong = document.createElement('strong');
+      strong.textContent = `E${ep.episode_number} · ${clampText(ep.name || 'Episode', 100)}`;
+      const span = document.createElement('span');
+      span.textContent = clampText(ep.overview || ep.air_date || 'Episode details unavailable.', 150);
+      button.append(strong, span);
+      button.addEventListener('click', () => {
+        playActive(seasonNumber, ep.episode_number);
+        focusSection($('#player-title'));
+      });
+      return button;
+    }) : [empty('No episodes are listed for this season.')]));
+    const selectedEpisode = episodes.find(ep => ep.episode_number === restoreEpisode) || episodes[0];
+    if (selectedEpisode) playActive(seasonNumber, selectedEpisode.episode_number);
     showSnapshotNotice();
   } catch (error) { setStatus(error.message || 'Unable to load season.', 'error'); }
 }
@@ -266,14 +298,37 @@ function nextEpisode() {
   else setStatus('This is the last episode loaded for the season.', 'info');
 }
 
+async function reopenStoredItem(item) {
+  const selection = librarySelection(item);
+  if (!selection) return setStatus('This saved title has invalid metadata.', 'error');
+  switchTab('discover');
+  await openDetails({ media_type: selection.mediaType, id: selection.tmdbId }, {
+    season: selection.season, episode: selection.episode
+  });
+}
+
 function libraryCard(item, type) {
-  const row = document.createElement('article'); row.className = 'library-item';
-  const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = item.title || 'Untitled';
-  const meta = document.createElement('small'); meta.textContent = `${item.mediaType === 'tv' ? 'TV' : 'Movie'}${item.season ? ` • S${item.season}E${item.episode}` : ''} • ${item.year || '—'}`;
-  info.append(title, meta); row.append(info);
+  const row = document.createElement('article');
+  row.className = 'library-item';
+  const open = document.createElement('button');
+  open.className = 'library-open';
+  open.type = 'button';
+  const title = document.createElement('strong');
+  title.textContent = item.title || 'Untitled';
+  const meta = document.createElement('small');
+  meta.textContent = `${item.mediaType === 'tv' ? 'TV' : 'Movie'}${item.season ? ` • S${item.season}E${item.episode}` : ''} • ${item.year || '—'}`;
+  open.append(title, meta);
+  open.setAttribute('aria-label', `Open ${item.title || 'saved title'}${item.season ? ` season ${item.season}, episode ${item.episode}` : ''}`);
+  open.addEventListener('click', () => reopenStoredItem(item));
+  row.append(open);
   if (type === 'watchlist') {
-    const remove = document.createElement('button'); remove.className = 'button button--quiet'; remove.type = 'button'; remove.textContent = 'Remove';
-    remove.addEventListener('click', () => { storage.toggleWatchlist(item); renderLibrary(); }); row.append(remove);
+    const remove = document.createElement('button');
+    remove.className = 'button button--quiet';
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove ${item.title || 'title'} from watchlist`);
+    remove.addEventListener('click', () => { storage.toggleWatchlist(item); renderLibrary(); });
+    row.append(remove);
   }
   return row;
 }

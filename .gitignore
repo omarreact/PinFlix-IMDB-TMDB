@@ -1,4 +1,15 @@
 node_modules/
 dist/
 work/
+*.zip
+*.log
+*.tmp
+*.swp
 .DS_Store
+Thumbs.db
+Desktop.ini
+.vercel/
+.env
+.env.*
+!.env.example
+assets/data/tmdb-catalogue.json
