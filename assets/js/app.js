@@ -50,6 +50,20 @@ function configureClient() {
     apiKey,
     catalogueUrl: './assets/data/tmdb-catalogue.json'
   });
+  // The deployment embeds a cached catalogue directly in HTML. Read it now
+  // so TMDB outages and service-worker/CDN failures cannot hide the catalogue.
+  const block = document.getElementById('pinflix-embedded-catalogue');
+  if (block?.content?.textContent) {
+    try {
+      const snapshot = JSON.parse(block.content.textContent);
+      if (snapshot.version === 1 && Array.isArray(snapshot.items) &&
+          snapshot.items.length > 0 && snapshot.details && typeof snapshot.details === 'object') {
+        state.client.cataloguePromise = Promise.resolve(snapshot);
+      }
+    } catch {
+      // Older builds and invalid data fall back to the original JSON endpoint.
+    }
+  }
   els.searchBtn.disabled = !state.client;
 }
 

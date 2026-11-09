@@ -37,3 +37,7 @@ The pull-request GitHub Actions workflow runs tests, a live metadata smoke check
 - The project uses safe text rendering for TMDB content, a Content Security Policy, and sandbox restrictions on player frames.
 
 Native Android/Windows packaging is not part of this static site change; see `docs/NATIVE.md`.
+
+## Embedded Android catalogue resilience
+
+On GitHub Pages, the CI job now embeds the same non-executable JSON snapshot inside the generated `dist/index.html` as a `<template>` data block, in addition to publishing `assets/data/tmdb-catalogue.json`. The browser seeds its metadata fallback directly from the delivered document, so an unavailable TMDB API *and* a separately blocked JSON request cannot both prevent the initial catalogue from loading. Direct TMDB remains the preferred source when available. The source `index.html` stays lightweight; injection is performed only in the deployed build artifact, after fetching the latest snapshot. The iframe/player code and UI remain unchanged.

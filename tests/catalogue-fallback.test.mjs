@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildCatalogueSnapshot } from '../scripts/catalogue-snapshot.mjs';
@@ -87,4 +87,43 @@ test('original TMDB network error is preserved if no snapshot is published', asy
     throw new TypeError('Network unreachable');
   }, { catalogueUrl: './assets/data/tmdb-catalogue.json' });
   await assert.rejects(() => client.trending(), /Network error while contacting TMDB/);
+});
+
+test('build embeds an independently readable inert catalogue in HTML', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'pinflix-embedded-'));
+  const htmlFile = join(temp, 'index.html');
+  const file = join(temp, 'assets/data/tmdb-catalogue.json');
+  const marker = '<script type="module" src="assets/js/app.js"></script>';
+  try {
+    await writeFile(htmlFile, '<html><body>' + marker + '</body></html>');
+    await buildCatalogueSnapshot({ fetchImpl: fakeFetch, apiKey: 'fixture-key', outputPath: file, htmlPath: htmlFile });
+    const html = await readFile(htmlFile, 'utf8');
+    const match = html.match(/<template id="pinflix-embedded-catalogue">([\\s\\S]*?)<\\/template>/);
+    assert.ok(match, 'the catalogue must be included in the delivered HTML');
+    const embedded = JSON.parse(match[1]);
+    assert.equal(embedded.items.length, 4);
+    assert.equal(embedded.details['movie:1'].external_ids.imdb_id, 'tt1234567');
+    assert.equal(html.includes('fixture-key'), false, 'the key must never enter the HTML');
+    assert.ok(html.includes(marker), 'the JS app must continue loading');
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
+
+test('an embedded catalogue provides results when both TMDB and the JSON endpoint fail', async () => {
+  const snapshot = {
+    version: 1,
+    generated_at: '2026-11-09T00:00:00Z',
+    items: fixtures['/trending/all/week'].results,
+    details: { 'movie:1': fixtures['/movie/1'], 'tv:2': fixtures['/tv/2'] }
+  };
+  let requests = 0;
+  const client = new TmdbClient('', async () => {
+    requests++;
+    throw new TypeError('Blocked network request');
+  }, { apiKey: 'fixture-key', catalogueUrl: './assets/data/tmdb-catalogue.json' });
+  client.cataloguePromise = Promise.resolve(snapshot);
+  assert.equal((await client.trending()).length, 2);
+  assert.equal(client.usingSnapshot, true);
+  assert.equal((await client.searchMulti('First')).length, 2);
+  assert.equal((await client.details('movie', 1)).external_ids.imdb_id, 'tt1234567');
+  assert.equal(requests, 1, 'only the first direct TMDB attempt should occur');
 });
