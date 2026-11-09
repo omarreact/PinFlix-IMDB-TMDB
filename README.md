@@ -1,17 +1,24 @@
-# PinFlix IMDB/TMDB
+# PinFlix IMDb / TMDB
 
-A clean, static PinFlix web/PWA project rebuilt from the archived prototype audit. It uses TMDB for movie/TV metadata and keeps local history/watchlist data in the browser.
+A static GitHub Pages movie and TV discovery site. The frontend uses TMDB metadata, IMDb identifiers and user-initiated third-party iframe players. It keeps watch history and watchlists in browser storage.
 
-## Security changes
+## Zero-configuration visitor experience
 
-- No dynamic `innerHTML` rendering in application code.
-- When configured with a direct development token, TMDB authorization uses the `Authorization` header. A v3 API key is also supported for development fallback.
-- Playback iframe is sandboxed and uses `referrerpolicy="no-referrer"`.
-- HTTPS-only playback templates; no provider endpoint is hard-coded.
-- CSP blocks inline scripts and mixed HTTP content.
-- Search requests are cancellable to prevent stale results from overwriting newer queries.
+**No visitor setup page, credential prompt, playback URL input, or Settings dialog.** The source configuration belongs in the repository:
+- `assets/js/dev-config.js`: TMDB development **v3 browser API key** (already included by the owner; it is visible to every public visitor). Do **not** publish the private TMDB Read Access Token here.
+- `assets/js/services/providers.js`: fixed primary/backup player URLs for MultiEmbed and VSEmbed.
+- `assets/js/app.js`: automatic catalogue, movie/TV details, episode navigation, video frame, manual **Try another server**, history/watchlist and browser UI.
+- `assets/js/services/player-security.js`: restricted iframe by default. **Compatibility playback** is an explicit temporary opt-in for providers that reject sandbox restrictions. It can enable unwanted ads, popups or navigation; it does not remove advertising.
 
-## Local development
+The imported example file `PinFlix_Dev_Compatibility_Fix.html` supplied the reference player URL patterns and direct-code setup. The repository retains its original PinFlix design and modular architecture instead of replacing it with the example's page layout.
+
+## GitHub Pages TMDB fallback
+
+Live TMDB calls remain the preferred source. When the user's Android network/browser cannot reach `api.themoviedb.org`, the app loads `assets/data/tmdb-catalogue.json` **from the same GitHub Pages origin**. GitHub Actions builds this limited trending/popular snapshot at deployment time. It includes cached metadata and IMDb IDs, and generates episode-number navigation from cached season counts. Search in fallback mode only covers those cached titles.
+
+This does not unblock direct TMDB access, TMDB poster/CDN access, or third-party video servers. A cached catalogue is not a complete TMDB mirror. The origin of a streaming popup or in-frame advertisement is independent from TMDB metadata.
+
+## Run and validate
 
 ```bash
 npm run check
@@ -19,46 +26,14 @@ npm run build
 npm run dev -- --port=4173
 ```
 
-Open `http://127.0.0.1:4173`. The demo catalogue loads automatically when development credentials are set in `assets/js/dev-config.js`. No credentials form is displayed.
+The pull-request GitHub Actions workflow runs tests, a live metadata smoke check, builds the static output and generates the snapshot. It does **not** deploy pull requests. The `main` push workflow publishes GitHub Pages.
 
-## Local development credentials (no Cloudflare)
+## Security / limitations
 
-The app supports direct TMDB credentials for development. Edit `assets/js/dev-config.js` **only in a local/private copy**, setting `DEV_TMDB_READ_ACCESS_TOKEN` or `DEV_TMDB_API_KEY`. The repo keeps empty placeholders intentionally: pushing real values to a public GitHub branch or Pages site exposes them to anyone.
+- Public GitHub Pages **cannot keep client-side keys secret**. Rotate or restrict the development v3 key before production; never commit the private bearer token.
+- All third-party video players are external to PinFlix and may have ads or fail under sandboxing. Actual video playback is not verified by a metadata smoke test.
+- Browser history and watchlist require no account and remain device-local.
+- Provider switching is user-initiated. Cross-origin iframes do not reliably expose playback-health signals for automatic failover.
+- The project uses safe text rendering for TMDB content, a Content Security Policy, and sandbox restrictions on player frames.
 
-The catalogue auto-loads trending movies and TV at startup. Streaming embeds are sandboxed, but untrusted provider ads inside an iframe cannot be removed by TMDB configuration.
-
-## Network-resilient catalogue on GitHub Pages
-
-The app normally queries TMDB directly. Some Android/mobile networks or browsers cannot reach `api.themoviedb.org` even though the GitHub Pages website itself loads.
-
-The GitHub Actions Pages workflow now generates `dist/assets/data/tmdb-catalogue.json` using the development TMDB v3 key during CI. If a visitor's live TMDB request fails or times out, PinFlix uses this **same-origin** snapshot automatically, with cached text search, movie/TV IMDb identifiers, and synthesized episode-number navigation for cached TV seasons.
-
-No Cloudflare Worker, proxy server, or alternate external API service is involved. The snapshot covers a **limited selection of trending/popular titles from the last successful deployment**, not TMDB's entire database. Movie posters still come from TMDB's image host and may be unavailable on blocked networks. Video-provider availability and ad behavior are separate from TMDB metadata.
-
-To refresh the snapshot, run the existing GitHub Pages workflow (manual `workflow_dispatch`) or publish a new commit. The generated snapshot is part of the deployment artifact and no additional credentials are embedded in it.
-
-## Playback template
-
-PinFlix does not ship a third-party streaming service. If you operate or are authorized to use an HTTPS embed provider, configure a URL template in Settings. Supported placeholders: `{imdb}`, `{tmdb}`, `{season}`, `{episode}`.
-
-## GitHub Pages
-
-`.github/workflows/pages.yml` validates pull requests and deploys `main` through GitHub Pages after the repository's Pages source is configured to **GitHub Actions**.
-
-## Native packages
-
-Windows and Android packaging are intentionally not coupled to this web recovery commit. See `docs/NATIVE.md` for the proposed next step after the web branch is accepted and Pages is verified.
-
-## Playback compatibility (GitHub Pages)
-
-The embedded player remains **sandboxed by default**, blocking popups and top-level navigation. Some third-party providers refuse sandboxed iframes and show “Sandboxing is not allowed”. After choosing an authorized playback provider in Settings, visitors may click **Compatibility playback** and confirm the warning to reload the same movie or episode without iframe sandbox restrictions. This is session-only and returns to restricted mode on refresh. Compatibility mode is **not** an ad blocker: the provider may show ads, open popups, or attempt redirects.
-
-You can configure a second authorized HTTPS provider template in Settings. **Try another server** switches manually between primary and backup without changing the selected movie/episode or watch history. Automatic detection of cross-origin iframe playback failures is not possible reliably from this static page.
-
-The GitHub Pages site does not contain the TMDB credentials supplied privately for development; its direct development credential placeholders are empty. Embedding them in a public static build exposes them to visitors.
-
-## GitHub Pages catalogue & built-in playback (2026-11-09)
-
-The GitHub Pages build now includes a **public development-only TMDB v3 API key** to resolve the previously empty catalogue for new visitors. This key is deliberately exposed in static JavaScript, as the owner requested, and can be copied by any visitor; **do not use a private bearer token in the public build**. Rotate or restrict the v3 key before any non-development release. Live TMDB availability is checked from CI with `scripts/smoke-tmdb.mjs`.
-
-The app now derives the two default embedded video sources from validated IMDb IDs, matching the user's working standalone HTML. Visitors do not need to type provider URL templates to show a player. Settings can optionally override both default sources. The default iframe remains sandboxed, and compatibility playback is explicitly opt-in because it removes popup/navigation protection. Provider availability and actual video playback cannot be established by a successful metadata request or CI build.
+Native Android/Windows packaging is not part of this static site change; see `docs/NATIVE.md`.
