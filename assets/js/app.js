@@ -150,6 +150,10 @@ async function openDetails(item, { season = null, episode = null } = {}) {
       mediaType: item.media_type, tmdbId: item.id, title: titleFor(detail), poster: detail.poster_path || '', year: yearFor(detail),
       imdbId: normalizeImdbId(detail.external_ids?.imdb_id || '') || ''
     };
+    // Stop the previous title's video before displaying a new movie or TV show.
+    state.playback = null;
+    els.frame.src = 'about:blank';
+    els.playerSection.hidden = true;
     renderDetails(detail);
     if (item.media_type === 'tv') {
       await setupSeasons(detail, { season, episode });

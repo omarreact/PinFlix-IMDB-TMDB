@@ -22,6 +22,18 @@ jobs:
       - run: npm run check
       - run: node scripts/smoke-tmdb.mjs
       - run: npm run build
+      - name: Smoke built site on localhost
+        run: |
+          npm run dev -- --port=4173 > /tmp/pinflix-serve.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:4173/ -o /tmp/pinflix-index.html; then break; fi
+            sleep 1
+          done
+          grep -q 'pinflix-embedded-catalogue' /tmp/pinflix-index.html
+          curl -fsS http://127.0.0.1:4173/assets/data/tmdb-catalogue.json -o /tmp/pinflix-catalogue.json
+          node -e "const d=require('/tmp/pinflix-catalogue.json'); if (!Array.isArray(d.items)||!d.items.length) process.exit(1)"
       - uses: actions/upload-artifact@v4
         with:
           name: pinflix-web
