@@ -1,4 +1,4 @@
-const CACHE='pinflix-v5-mobile-catalogue-fallback';
+const CACHE='pinflix-v6-zero-config-catalogue';
 const CORE=['./','./index.html','./assets/css/styles.css','./assets/js/app.js','./assets/js/lib/validation.js','./assets/js/services/storage.js','./assets/js/services/tmdb.js','./assets/js/services/providers.js','./assets/js/services/player-security.js','./assets/js/dev-config.js','./assets/icons/pinflix.svg','./assets/icons/poster-placeholder.svg','./manifest.webmanifest'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(CORE)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
