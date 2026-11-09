@@ -2,6 +2,7 @@ import { clampText, normalizeImdbId, providerTemplateIsValid } from './lib/valid
 import { storage } from './services/storage.js';
 import { TmdbClient, TmdbError } from './services/tmdb.js';
 import { buildProviderUrl } from './services/providers.js';
+import { DEV_TMDB_READ_ACCESS_TOKEN, DEV_TMDB_API_KEY } from './dev-config.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -9,7 +10,7 @@ const state = { client: null, searchAbort: null, active: null, season: null };
 
 const els = {
   search: $('#search-input'), searchBtn: $('#search-submit'), results: $('#search-results'), summary: $('#search-summary'),
-  status: $('#app-status'), keyBanner: $('#api-key-banner'), settings: $('#settings-dialog'), token: $('#tmdb-token'),
+  status: $('#app-status'), settings: $('#settings-dialog'),
   provider: $('#provider-template'), playerSection: $('#player-section'), frame: $('#stream-frame'), playerTitle: $('#player-title'),
   detail: $('#detail-panel'), trailer: $('#trailer-link'), seasons: $('#season-select'), episodes: $('#episodes'),
   nextEpisode: $('#next-episode'), history: $('#history-list'), watchlist: $('#watchlist-list'), tabs: $$('.tab'), panels: $$('.tab-panel')
@@ -22,29 +23,28 @@ function setStatus(message = '', tone = 'info') {
 }
 
 function configureClient() {
-  const token = storage.getToken();
-  state.client = token ? new TmdbClient(token) : null;
-  els.keyBanner.hidden = Boolean(token);
-  els.searchBtn.disabled = !token;
+  // Keep existing users working when their token is already saved locally.
+  // New installations can use the explicit development-only configuration.
+  const token = DEV_TMDB_READ_ACCESS_TOKEN.trim() || storage.getToken();
+  const apiKey = DEV_TMDB_API_KEY.trim();
+  state.client = (token || apiKey) ? new TmdbClient(token, fetch, { apiKey }) : null;
+  els.searchBtn.disabled = !state.client;
 }
 
 function saveSettings(event) {
   event.preventDefault();
-  const token = els.token.value.trim();
   const provider = els.provider.value.trim();
   if (provider && !providerTemplateIsValid(provider)) {
     setStatus('Playback template must produce a valid HTTPS URL.', 'error');
     return;
   }
-  storage.setToken(token);
   storage.setProviderTemplate(provider);
   configureClient();
   els.settings.close();
-  setStatus(token ? 'Settings saved.' : 'TMDB token removed.', 'success');
+  setStatus('Playback settings saved.', 'success');
 }
 
 function openSettings() {
-  els.token.value = storage.getToken();
   els.provider.value = storage.getProviderTemplate();
   els.settings.showModal();
 }
@@ -79,6 +79,23 @@ function createCard(item) {
     save.textContent = result.saved ? 'Saved' : 'Add'; renderLibrary();
   });
   actions.append(open, save); body.append(title, meta, overview, actions); card.append(body); return card;
+}
+
+async function loadCatalogue() {
+  if (!state.client) return;
+  state.searchAbort?.abort();
+  const controller = new AbortController();
+  state.searchAbort = controller;
+  els.searchBtn.disabled = true;
+  setStatus('Loading trending movies and TV…');
+  try {
+    const results = await state.client.trending(controller.signal);
+    els.results.replaceChildren(...results.map(createCard));
+    els.summary.textContent = results.length ? 'Trending movies and TV shows from TMDB' : 'No titles returned.';
+    setStatus('');
+  } catch (error) {
+    if (error?.name !== 'AbortError') setStatus(error instanceof TmdbError ? error.message : 'Unable to load catalogue.', 'error');
+  } finally { els.searchBtn.disabled = !state.client; }
 }
 
 async function performSearch(event) {
@@ -201,11 +218,11 @@ function switchTab(name) {
 function applyDeepLink() {
   const params = new URLSearchParams(location.search); const query = params.get('q');
   if (query) { els.search.value = clampText(query, 120); if (state.client) performSearch(); }
+  return Boolean(query);
 }
 
 $('#search-form').addEventListener('submit', performSearch);
 $('#open-settings').addEventListener('click', openSettings);
-$('#api-key-settings').addEventListener('click', openSettings);
 $('#settings-form').addEventListener('submit', saveSettings);
 $('#settings-cancel').addEventListener('click', () => els.settings.close());
 els.seasons.addEventListener('change', () => loadSeason(Number(els.seasons.value)));
@@ -213,5 +230,7 @@ els.nextEpisode.addEventListener('click', nextEpisode);
 $('#clear-library').addEventListener('click', () => { storage.clearLibrary(); renderLibrary(); setStatus('Local library cleared.', 'success'); });
 els.tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
 
-configureClient(); renderLibrary(); switchTab('discover'); applyDeepLink();
+configureClient(); renderLibrary(); switchTab('discover');
+if (!applyDeepLink() && state.client) loadCatalogue();
+if (!state.client) setStatus('Set direct development credentials in assets/js/dev-config.js to load the catalogue.', 'error');
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) navigator.serviceWorker.register('./sw.js').catch(() => {});
