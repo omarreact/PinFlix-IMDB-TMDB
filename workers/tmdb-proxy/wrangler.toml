@@ -1,0 +1,7 @@
+name = "pinflix-tmdb-proxy"
+main = "src/index.js"
+compatibility_date = "2026-11-09"
+workers_dev = true
+
+# TMDB_READ_ACCESS_TOKEN is a Worker secret, not a [vars] entry.
+# Set it interactively: npx wrangler secret put TMDB_READ_ACCESS_TOKEN
