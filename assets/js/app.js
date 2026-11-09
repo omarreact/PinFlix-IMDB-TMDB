@@ -1,8 +1,8 @@
-import { clampText, normalizeImdbId, providerTemplateIsValid } from './lib/validation.js';
+import { clampText, normalizeImdbId } from './lib/validation.js';
 import { storage } from './services/storage.js';
 import { TmdbClient, TmdbError } from './services/tmdb.js';
-import { buildProviderUrl, buildBuiltinProviderUrl, BUILTIN_PROVIDERS } from './services/providers.js';
-import { applyPlaybackSecurity, providerForIndex } from './services/player-security.js';
+import { buildBuiltinProviderUrl, BUILTIN_PROVIDERS } from './services/providers.js';
+import { applyPlaybackSecurity } from './services/player-security.js';
 import { DEV_TMDB_READ_ACCESS_TOKEN, DEV_TMDB_API_KEY } from './dev-config.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -14,8 +14,7 @@ const state = {
 
 const els = {
   search: $('#search-input'), searchBtn: $('#search-submit'), results: $('#search-results'), summary: $('#search-summary'),
-  status: $('#app-status'), settings: $('#settings-dialog'),
-  provider: $('#provider-template'), backupProvider: $('#backup-provider-template'),
+  status: $('#app-status'),
   playerSection: $('#player-section'), frame: $('#stream-frame'), playerTitle: $('#player-title'),
   switchProvider: $('#switch-provider'), compatibility: $('#toggle-compatibility'),
   securityNote: $('#player-security-note'),
@@ -52,30 +51,6 @@ function configureClient() {
     catalogueUrl: './assets/data/tmdb-catalogue.json'
   });
   els.searchBtn.disabled = !state.client;
-}
-
-function saveSettings(event) {
-  event.preventDefault();
-  const provider = els.provider.value.trim();
-  const backupProvider = els.backupProvider.value.trim();
-  if ((provider && !providerTemplateIsValid(provider)) ||
-      (backupProvider && !providerTemplateIsValid(backupProvider))) {
-    setStatus('Playback template must produce a valid HTTPS URL.', 'error');
-    return;
-  }
-  storage.setProviderTemplate(provider);
-  storage.setBackupProviderTemplate(backupProvider);
-  state.providerIndex = 0;
-  if (state.playback) renderPlayback();
-  configureClient();
-  els.settings.close();
-  setStatus('Playback settings saved.', 'success');
-}
-
-function openSettings() {
-  els.provider.value = storage.getProviderTemplate();
-  els.backupProvider.value = storage.getBackupProviderTemplate();
-  els.settings.showModal();
 }
 
 function poster(item) {
@@ -132,7 +107,7 @@ async function loadCatalogue() {
 async function performSearch(event) {
   event?.preventDefault();
   const query = els.search.value.trim();
-  if (!state.client) return openSettings();
+  if (!state.client) return setStatus('TMDB catalogue is unavailable.', 'error');
   if (query.length < 2) return setStatus('Enter at least two characters.', 'error');
   state.searchAbort?.abort();
   const controller = new AbortController(); state.searchAbort = controller;
@@ -204,14 +179,9 @@ async function loadSeason(seasonNumber) {
 function renderPlayback() {
   if (!state.playback) return;
   const item = state.playback;
-  const primary = storage.getProviderTemplate();
-  const backup = storage.getBackupProviderTemplate();
-  const customProviderConfigured = Boolean(primary || backup);
-  const template = providerForIndex(primary, backup, state.providerIndex);
+  // Provider endpoints are maintained in services/providers.js, not visitor Settings.
   const builtinProvider = BUILTIN_PROVIDERS[state.providerIndex] || BUILTIN_PROVIDERS[0];
-  const url = customProviderConfigured
-    ? buildProviderUrl(template, item)
-    : buildBuiltinProviderUrl(builtinProvider.id, item);
+  const url = buildBuiltinProviderUrl(builtinProvider.id, item);
   els.playerSection.hidden = false;
   els.playerTitle.textContent = item.mediaType === 'tv'
     ? `${item.title} · S${item.season}E${item.episode}`
@@ -229,10 +199,7 @@ function renderPlayback() {
       : 'TMDB has no IMDb ID for this title. Choose another movie or show.';
   }
 
-  const hasAlternative = customProviderConfigured
-    ? Boolean(primary && backup)
-    : BUILTIN_PROVIDERS.length > 1;
-  els.switchProvider.hidden = !hasAlternative || !url;
+  els.switchProvider.hidden = BUILTIN_PROVIDERS.length < 2 || !url;
   els.switchProvider.textContent = state.providerIndex === 0
     ? 'Try another server'
     : 'Return to primary server';
@@ -241,9 +208,7 @@ function renderPlayback() {
   els.compatibility.setAttribute('aria-pressed', String(state.compatibilityMode));
   els.securityNote.hidden = !url;
   els.securityNote.dataset.risk = state.compatibilityMode ? 'warning' : 'safe';
-  const providerLabel = customProviderConfigured
-    ? (state.providerIndex === 0 ? 'Custom primary' : 'Custom backup')
-    : builtinProvider.label;
+  const providerLabel = builtinProvider.label;
   els.securityNote.textContent = state.compatibilityMode
     ? providerLabel + ': Compatibility mode removes iframe sandbox restrictions; ads, popups or redirects are possible.'
     : providerLabel + ': Restricted mode blocks popups and top-page navigation. If the player says “Sandboxing is not allowed”, choose Compatibility playback.';
@@ -261,13 +226,10 @@ function playActive(season, episode) {
 }
 
 function switchPlaybackProvider() {
-  const primary = storage.getProviderTemplate();
-  const backup = storage.getBackupProviderTemplate();
-  if (!state.playback) return;
-  if ((primary || backup) && (!primary || !backup)) return;
-  state.providerIndex = state.providerIndex === 0 ? 1 : 0;
+  if (!state.playback || BUILTIN_PROVIDERS.length < 2) return;
+  state.providerIndex = (state.providerIndex + 1) % BUILTIN_PROVIDERS.length;
   renderPlayback();
-  setStatus(state.providerIndex === 0 ? 'Primary playback provider selected.' : 'Backup playback provider selected.', 'info');
+  setStatus(`${BUILTIN_PROVIDERS[state.providerIndex].label} selected.`, 'info');
 }
 
 function toggleCompatibilityPlayback() {
@@ -322,9 +284,6 @@ function applyDeepLink() {
 }
 
 $('#search-form').addEventListener('submit', performSearch);
-$('#open-settings').addEventListener('click', openSettings);
-$('#settings-form').addEventListener('submit', saveSettings);
-$('#settings-cancel').addEventListener('click', () => els.settings.close());
 els.seasons.addEventListener('change', () => loadSeason(Number(els.seasons.value)));
 els.nextEpisode.addEventListener('click', nextEpisode);
 els.switchProvider.addEventListener('click', switchPlaybackProvider);
