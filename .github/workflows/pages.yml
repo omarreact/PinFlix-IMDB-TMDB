@@ -20,6 +20,7 @@ jobs:
         with:
           node-version: 22
       - run: npm run check
+      - run: node scripts/smoke-tmdb.mjs
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
