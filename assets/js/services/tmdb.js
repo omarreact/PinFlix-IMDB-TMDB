@@ -9,26 +9,27 @@ export class TmdbError extends Error {
 }
 
 export class TmdbClient {
-  constructor(token, fetchImpl = fetch) {
+  constructor(token, fetchImpl = fetch, { proxyBaseUrl = '' } = {}) {
     this.token = token;
     this.fetchImpl = fetchImpl;
+    this.proxyBaseUrl = proxyBaseUrl.replace(/\/+$/, '');
+    if (this.proxyBaseUrl && !/^https:\/\//.test(this.proxyBaseUrl) &&
+        !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(this.proxyBaseUrl)) {
+      throw new TmdbError('TMDB proxy URL must be HTTPS (except local development).');
+    }
   }
 
   async request(path, params = {}, signal) {
-    if (!this.token) throw new TmdbError('TMDB Read Access Token is required.');
-    const url = new URL(`${API}${path}`);
+    if (!this.token && !this.proxyBaseUrl) throw new TmdbError('TMDB Read Access Token or server-side proxy is required.');
+    const url = new URL(`${this.proxyBaseUrl || API}${path}`);
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
     });
     let response;
     try {
-      response = await this.fetchImpl(url, {
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          Accept: 'application/json'
-        },
-        signal
-      });
+      const headers = { Accept: 'application/json' };
+      if (!this.proxyBaseUrl) headers.Authorization = `Bearer ${this.token}`;
+      response = await this.fetchImpl(url, { headers, signal });
     } catch (error) {
       if (error?.name === 'AbortError') throw error;
       throw new TmdbError('Network error while contacting TMDB.');
@@ -39,6 +40,11 @@ export class TmdbClient {
       throw new TmdbError(detail || `TMDB request failed (${response.status}).`, response.status);
     }
     return response.json();
+  }
+
+  async trending(signal) {
+    const data = await this.request('/trending/all/week', {}, signal);
+    return (data.results || []).filter(item => item.media_type === 'movie' || item.media_type === 'tv');
   }
 
   async searchMulti(query, signal) {
