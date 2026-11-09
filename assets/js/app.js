@@ -44,7 +44,10 @@ function configureClient() {
   const apiKey = DEV_TMDB_API_KEY.trim();
   const legacyToken = storage.getToken();
   // Prefer the explicit app configuration; legacy per-browser storage is only a fallback.
-  state.client = new TmdbClient(token || legacyToken, fetch, {
+  // Explicit development configuration takes priority over stale per-browser tokens.
+  // Only fall back to legacy storage when neither development credential is present.
+  const effectiveToken = token || (apiKey ? '' : legacyToken);
+  state.client = new TmdbClient(effectiveToken, fetch, {
     apiKey,
     catalogueUrl: './assets/data/tmdb-catalogue.json'
   });
