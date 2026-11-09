@@ -10,7 +10,7 @@ const state = { client: null, searchAbort: null, active: null, season: null };
 
 const els = {
   search: $('#search-input'), searchBtn: $('#search-submit'), results: $('#search-results'), summary: $('#search-summary'),
-  status: $('#app-status'), keyBanner: $('#api-key-banner'), settings: $('#settings-dialog'), token: $('#tmdb-token'),
+  status: $('#app-status'), settings: $('#settings-dialog'),
   provider: $('#provider-template'), playerSection: $('#player-section'), frame: $('#stream-frame'), playerTitle: $('#player-title'),
   detail: $('#detail-panel'), trailer: $('#trailer-link'), seasons: $('#season-select'), episodes: $('#episodes'),
   nextEpisode: $('#next-episode'), history: $('#history-list'), watchlist: $('#watchlist-list'), tabs: $$('.tab'), panels: $$('.tab-panel')
@@ -28,28 +28,24 @@ function configureClient() {
   state.client = proxy
     ? new TmdbClient('', fetch, { proxyBaseUrl: proxy })
     : (token ? new TmdbClient(token) : null);
-  els.keyBanner.hidden = Boolean(state.client);
   els.searchBtn.disabled = !state.client;
 }
 
 function saveSettings(event) {
   event.preventDefault();
-  const token = els.token.value.trim();
   const provider = els.provider.value.trim();
   if (provider && !providerTemplateIsValid(provider)) {
     setStatus('Playback template must produce a valid HTTPS URL.', 'error');
     return;
   }
-  storage.setToken(token);
   storage.setProviderTemplate(provider);
   configureClient();
   els.settings.close();
-  setStatus(token ? 'Settings saved.' : 'Settings saved.', 'success');
+  setStatus('Settings saved.', 'success');
   if (state.client) loadCatalogue();
 }
 
 function openSettings() {
-  els.token.value = storage.getToken();
   els.provider.value = storage.getProviderTemplate();
   els.settings.showModal();
 }
@@ -233,7 +229,6 @@ function applyDeepLink() {
 
 $('#search-form').addEventListener('submit', performSearch);
 $('#open-settings').addEventListener('click', openSettings);
-$('#api-key-settings').addEventListener('click', openSettings);
 $('#settings-form').addEventListener('submit', saveSettings);
 $('#settings-cancel').addEventListener('click', () => els.settings.close());
 els.seasons.addEventListener('change', () => loadSeason(Number(els.seasons.value)));
@@ -243,4 +238,5 @@ els.tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.datase
 
 configureClient(); renderLibrary(); switchTab('discover');
 if (!applyDeepLink() && state.client) loadCatalogue();
+if (!state.client) setStatus('TMDB metadata proxy has not been configured yet.', 'error');
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) navigator.serviceWorker.register('./sw.js').catch(() => {});
