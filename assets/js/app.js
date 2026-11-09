@@ -2,16 +2,23 @@ import { clampText, normalizeImdbId, providerTemplateIsValid } from './lib/valid
 import { storage } from './services/storage.js';
 import { TmdbClient, TmdbError } from './services/tmdb.js';
 import { buildProviderUrl } from './services/providers.js';
+import { applyPlaybackSecurity, providerForIndex } from './services/player-security.js';
 import { DEV_TMDB_READ_ACCESS_TOKEN, DEV_TMDB_API_KEY } from './dev-config.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const state = { client: null, searchAbort: null, active: null, season: null };
+const state = {
+  client: null, searchAbort: null, active: null, season: null,
+  playback: null, providerIndex: 0, compatibilityMode: false
+};
 
 const els = {
   search: $('#search-input'), searchBtn: $('#search-submit'), results: $('#search-results'), summary: $('#search-summary'),
   status: $('#app-status'), settings: $('#settings-dialog'),
-  provider: $('#provider-template'), playerSection: $('#player-section'), frame: $('#stream-frame'), playerTitle: $('#player-title'),
+  provider: $('#provider-template'), backupProvider: $('#backup-provider-template'),
+  playerSection: $('#player-section'), frame: $('#stream-frame'), playerTitle: $('#player-title'),
+  switchProvider: $('#switch-provider'), compatibility: $('#toggle-compatibility'),
+  securityNote: $('#player-security-note'),
   detail: $('#detail-panel'), trailer: $('#trailer-link'), seasons: $('#season-select'), episodes: $('#episodes'),
   nextEpisode: $('#next-episode'), history: $('#history-list'), watchlist: $('#watchlist-list'), tabs: $$('.tab'), panels: $$('.tab-panel')
 };
@@ -34,11 +41,16 @@ function configureClient() {
 function saveSettings(event) {
   event.preventDefault();
   const provider = els.provider.value.trim();
-  if (provider && !providerTemplateIsValid(provider)) {
+  const backupProvider = els.backupProvider.value.trim();
+  if ((provider && !providerTemplateIsValid(provider)) ||
+      (backupProvider && !providerTemplateIsValid(backupProvider))) {
     setStatus('Playback template must produce a valid HTTPS URL.', 'error');
     return;
   }
   storage.setProviderTemplate(provider);
+  storage.setBackupProviderTemplate(backupProvider);
+  state.providerIndex = 0;
+  if (state.playback) renderPlayback();
   configureClient();
   els.settings.close();
   setStatus('Playback settings saved.', 'success');
@@ -46,6 +58,7 @@ function saveSettings(event) {
 
 function openSettings() {
   els.provider.value = storage.getProviderTemplate();
+  els.backupProvider.value = storage.getBackupProviderTemplate();
   els.settings.showModal();
 }
 
@@ -168,18 +181,67 @@ async function loadSeason(seasonNumber) {
   } catch (error) { setStatus(error.message || 'Unable to load season.', 'error'); }
 }
 
+function renderPlayback() {
+  if (!state.playback) return;
+  const item = state.playback;
+  const primary = storage.getProviderTemplate();
+  const backup = storage.getBackupProviderTemplate();
+  const template = providerForIndex(primary, backup, state.providerIndex);
+  const url = buildProviderUrl(template, item);
+  els.playerSection.hidden = false;
+  els.playerTitle.textContent = item.mediaType === 'tv'
+    ? `${item.title} · S${item.season}E${item.episode}`
+    : item.title;
+
+  // Clear the prior document before changing sandbox permissions.
+  els.frame.src = 'about:blank';
+  applyPlaybackSecurity(els.frame, state.compatibilityMode);
+  els.frame.src = url || 'about:blank';
+  $('#provider-empty').hidden = Boolean(url);
+
+  const hasAlternative = Boolean(primary && backup);
+  els.switchProvider.hidden = !hasAlternative || !url;
+  els.switchProvider.textContent = state.providerIndex === 0 ? 'Try another server' : 'Return to primary server';
+  els.compatibility.hidden = !url;
+  els.compatibility.textContent = state.compatibilityMode ? 'Return to restricted mode' : 'Compatibility playback';
+  els.compatibility.setAttribute('aria-pressed', String(state.compatibilityMode));
+  els.securityNote.hidden = !url;
+  els.securityNote.dataset.risk = state.compatibilityMode ? 'warning' : 'safe';
+  els.securityNote.textContent = state.compatibilityMode
+    ? 'Compatibility mode removes iframe sandbox restrictions. The external provider may display ads, open popups, or attempt redirects.'
+    : 'Restricted mode blocks embedded popups and top-page navigation. If the provider says “Sandboxing is not allowed”, choose Compatibility playback to retry.';
+}
+
 function playActive(season, episode) {
   if (!state.active) return;
   const item = { ...state.active, season, episode };
-  const template = storage.getProviderTemplate();
-  const url = buildProviderUrl(template, item);
-  els.playerSection.hidden = false;
-  els.playerTitle.textContent = item.mediaType === 'tv' ? `${item.title} · S${season}E${episode}` : item.title;
-  els.frame.src = url || 'about:blank';
-  $('#provider-empty').hidden = Boolean(url);
-  storage.addHistory(item); renderLibrary();
+  state.playback = item;
+  renderPlayback();
+  storage.addHistory(item);
+  renderLibrary();
   els.nextEpisode.hidden = item.mediaType !== 'tv';
   if (item.mediaType === 'tv') els.nextEpisode.dataset.episode = String(episode || 0);
+}
+
+function switchPlaybackProvider() {
+  const primary = storage.getProviderTemplate();
+  const backup = storage.getBackupProviderTemplate();
+  if (!primary || !backup || !state.playback) return;
+  state.providerIndex = state.providerIndex === 0 ? 1 : 0;
+  renderPlayback();
+  setStatus(state.providerIndex === 0 ? 'Primary playback provider selected.' : 'Backup playback provider selected.', 'info');
+}
+
+function toggleCompatibilityPlayback() {
+  if (!state.playback) return;
+  if (!state.compatibilityMode) {
+    const approved = window.confirm(
+      'This provider may reject sandboxing. Compatibility playback removes iframe restrictions and can allow ads, popups, or redirects. Continue?'
+    );
+    if (!approved) return;
+  }
+  state.compatibilityMode = !state.compatibilityMode;
+  renderPlayback();
 }
 
 function nextEpisode() {
@@ -227,6 +289,8 @@ $('#settings-form').addEventListener('submit', saveSettings);
 $('#settings-cancel').addEventListener('click', () => els.settings.close());
 els.seasons.addEventListener('change', () => loadSeason(Number(els.seasons.value)));
 els.nextEpisode.addEventListener('click', nextEpisode);
+els.switchProvider.addEventListener('click', switchPlaybackProvider);
+els.compatibility.addEventListener('click', toggleCompatibilityPlayback);
 $('#clear-library').addEventListener('click', () => { storage.clearLibrary(); renderLibrary(); setStatus('Local library cleared.', 'success'); });
 els.tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
 
