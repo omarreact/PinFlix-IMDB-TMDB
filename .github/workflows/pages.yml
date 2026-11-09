@@ -22,6 +22,7 @@ jobs:
       - run: npm run check
       - run: node scripts/smoke-tmdb.mjs
       - run: npm run build
+      - run: node scripts/catalogue-snapshot.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: pinflix-web
@@ -35,10 +36,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 22
-      - run: npm run build
+          name: pinflix-web
+          path: dist
       - uses: actions/configure-pages@v5
         with:
           enablement: true
