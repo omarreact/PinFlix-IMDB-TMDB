@@ -4,7 +4,8 @@ const KEYS = {
   token: 'pinflix.tmdb-token',
   history: 'pinflix.history.v2',
   watchlist: 'pinflix.watchlist.v2',
-  providerTemplate: 'pinflix.provider-template.v1'
+  providerTemplate: 'pinflix.provider-template.v1',
+  backupProviderTemplate: 'pinflix.backup-provider-template.v1'
 };
 
 function storageAvailable() {
@@ -45,6 +46,14 @@ export const storage = {
     if (!storageAvailable()) return;
     if (value) localStorage.setItem(KEYS.providerTemplate, value.trim());
     else localStorage.removeItem(KEYS.providerTemplate);
+  },
+  getBackupProviderTemplate() {
+    return storageAvailable() ? localStorage.getItem(KEYS.backupProviderTemplate) || '' : '';
+  },
+  setBackupProviderTemplate(value) {
+    if (!storageAvailable()) return;
+    if (value) localStorage.setItem(KEYS.backupProviderTemplate, value.trim());
+    else localStorage.removeItem(KEYS.backupProviderTemplate);
   },
   getHistory() { return readArray(KEYS.history); },
   getWatchlist() { return readArray(KEYS.watchlist); },
