@@ -66,6 +66,11 @@ export class TmdbClient {
   }
 
   async withSnapshot(operation, fallback) {
+    // After the first network failure, use the same-origin snapshot immediately
+    // for available titles rather than making every click wait for another timeout.
+    if (this.usingSnapshot && this.cataloguePromise) {
+      try { return fallback(await this.loadSnapshot()); } catch { /* Online-only item: retry live TMDB. */ }
+    }
     try {
       const result = await operation();
       this.usingSnapshot = false;
