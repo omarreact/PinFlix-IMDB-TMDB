@@ -19,7 +19,13 @@ npm run build
 npm run dev -- --port=4173
 ```
 
-Open `http://127.0.0.1:4173` and add a TMDB API Read Access Token in Settings.
+Open `http://127.0.0.1:4173`. When the private proxy is configured, the app loads a trending TMDB catalogue automatically on every device. For local testing only, an existing browser-stored token can still be used.
+
+## Private metadata API
+
+The TMDB token field has been removed from the public interface. The app supports a Cloudflare Worker holding the Read Access Token in a server-side secret, then loads the trending catalogue automatically. The proxy must be deployed and its URL configured before automatic loading works for users without an existing browser token.
+
+See `docs/TMDB-PRIVATE-CONFIG.md`. Never commit your TMDB token or API key to the GitHub repository or the GitHub Pages build.
 
 ## Playback template
 
