@@ -98,9 +98,11 @@ test('build embeds an independently readable inert catalogue in HTML', async () 
     await writeFile(htmlFile, '<html><body>' + marker + '</body></html>');
     await buildCatalogueSnapshot({ fetchImpl: fakeFetch, apiKey: 'fixture-key', outputPath: file, htmlPath: htmlFile });
     const html = await readFile(htmlFile, 'utf8');
-    const match = html.match(/<template id="pinflix-embedded-catalogue">([\\s\\S]*?)<\\/template>/);
-    assert.ok(match, 'the catalogue must be included in the delivered HTML');
-    const embedded = JSON.parse(match[1]);
+    const open = '<template id="pinflix-embedded-catalogue">';
+    const start = html.indexOf(open);
+    const end = html.indexOf('</template>', start + open.length);
+    assert.ok(start !== -1 && end > start, 'the catalogue must be included in the delivered HTML');
+    const embedded = JSON.parse(html.slice(start + open.length, end));
     assert.equal(embedded.items.length, 4);
     assert.equal(embedded.details['movie:1'].external_ids.imdb_id, 'tt1234567');
     assert.equal(html.includes('fixture-key'), false, 'the key must never enter the HTML');
