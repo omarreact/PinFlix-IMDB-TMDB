@@ -2,6 +2,7 @@ import { clampText, normalizeImdbId, providerTemplateIsValid } from './lib/valid
 import { storage } from './services/storage.js';
 import { TmdbClient, TmdbError } from './services/tmdb.js';
 import { buildProviderUrl } from './services/providers.js';
+import { TMDB_PROXY_BASE_URL } from './config.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -23,9 +24,12 @@ function setStatus(message = '', tone = 'info') {
 
 function configureClient() {
   const token = storage.getToken();
-  state.client = token ? new TmdbClient(token) : null;
-  els.keyBanner.hidden = Boolean(token);
-  els.searchBtn.disabled = !token;
+  const proxy = TMDB_PROXY_BASE_URL.trim();
+  state.client = proxy
+    ? new TmdbClient('', fetch, { proxyBaseUrl: proxy })
+    : (token ? new TmdbClient(token) : null);
+  els.keyBanner.hidden = Boolean(state.client);
+  els.searchBtn.disabled = !state.client;
 }
 
 function saveSettings(event) {
@@ -40,7 +44,8 @@ function saveSettings(event) {
   storage.setProviderTemplate(provider);
   configureClient();
   els.settings.close();
-  setStatus(token ? 'Settings saved.' : 'TMDB token removed.', 'success');
+  setStatus(token ? 'Settings saved.' : 'Settings saved.', 'success');
+  if (state.client) loadCatalogue();
 }
 
 function openSettings() {
@@ -79,6 +84,28 @@ function createCard(item) {
     save.textContent = result.saved ? 'Saved' : 'Add'; renderLibrary();
   });
   actions.append(open, save); body.append(title, meta, overview, actions); card.append(body); return card;
+}
+
+async function loadCatalogue() {
+  if (!state.client) return;
+  state.searchAbort?.abort();
+  const controller = new AbortController();
+  state.searchAbort = controller;
+  els.searchBtn.disabled = true;
+  setStatus('Loading trending movies and TV shows…');
+  try {
+    const results = await state.client.trending(controller.signal);
+    els.results.replaceChildren(...results.map(createCard));
+    els.summary.textContent = results.length
+      ? 'Trending movies and TV shows on TMDB'
+      : 'No trending titles were returned by TMDB.';
+    setStatus('');
+  } catch (error) {
+    if (error.name !== 'AbortError')
+      setStatus(error instanceof TmdbError ? error.message : 'Catalogue loading failed.', 'error');
+  } finally {
+    els.searchBtn.disabled = !state.client;
+  }
 }
 
 async function performSearch(event) {
@@ -201,6 +228,7 @@ function switchTab(name) {
 function applyDeepLink() {
   const params = new URLSearchParams(location.search); const query = params.get('q');
   if (query) { els.search.value = clampText(query, 120); if (state.client) performSearch(); }
+  return Boolean(query);
 }
 
 $('#search-form').addEventListener('submit', performSearch);
@@ -213,5 +241,6 @@ els.nextEpisode.addEventListener('click', nextEpisode);
 $('#clear-library').addEventListener('click', () => { storage.clearLibrary(); renderLibrary(); setStatus('Local library cleared.', 'success'); });
 els.tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
 
-configureClient(); renderLibrary(); switchTab('discover'); applyDeepLink();
+configureClient(); renderLibrary(); switchTab('discover');
+if (!applyDeepLink() && state.client) loadCatalogue();
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) navigator.serviceWorker.register('./sw.js').catch(() => {});
