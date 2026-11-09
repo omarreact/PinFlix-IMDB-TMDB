@@ -27,6 +27,16 @@ The app supports direct TMDB credentials for development. Edit `assets/js/dev-co
 
 The catalogue auto-loads trending movies and TV at startup. Streaming embeds are sandboxed, but untrusted provider ads inside an iframe cannot be removed by TMDB configuration.
 
+## Network-resilient catalogue on GitHub Pages
+
+The app normally queries TMDB directly. Some Android/mobile networks or browsers cannot reach `api.themoviedb.org` even though the GitHub Pages website itself loads.
+
+The GitHub Actions Pages workflow now generates `dist/assets/data/tmdb-catalogue.json` using the development TMDB v3 key during CI. If a visitor's live TMDB request fails or times out, PinFlix uses this **same-origin** snapshot automatically, with cached text search, movie/TV IMDb identifiers, and synthesized episode-number navigation for cached TV seasons.
+
+No Cloudflare Worker, proxy server, or alternate external API service is involved. The snapshot covers a **limited selection of trending/popular titles from the last successful deployment**, not TMDB's entire database. Movie posters still come from TMDB's image host and may be unavailable on blocked networks. Video-provider availability and ad behavior are separate from TMDB metadata.
+
+To refresh the snapshot, run the existing GitHub Pages workflow (manual `workflow_dispatch`) or publish a new commit. The generated snapshot is part of the deployment artifact and no additional credentials are embedded in it.
+
 ## Playback template
 
 PinFlix does not ship a third-party streaming service. If you operate or are authorized to use an HTTPS embed provider, configure a URL template in Settings. Supported placeholders: `{imdb}`, `{tmdb}`, `{season}`, `{episode}`.
