@@ -23,7 +23,9 @@ function setStatus(message = '', tone = 'info') {
 }
 
 function configureClient() {
-  const token = DEV_TMDB_READ_ACCESS_TOKEN.trim();
+  // Keep existing users working when their token is already saved locally.
+  // New installations can use the explicit development-only configuration.
+  const token = DEV_TMDB_READ_ACCESS_TOKEN.trim() || storage.getToken();
   const apiKey = DEV_TMDB_API_KEY.trim();
   state.client = (token || apiKey) ? new TmdbClient(token, fetch, { apiKey }) : null;
   els.searchBtn.disabled = !state.client;
