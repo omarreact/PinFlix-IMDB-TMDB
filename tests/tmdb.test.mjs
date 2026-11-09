@@ -3,4 +3,14 @@ test('TMDB client sends bearer authorization',async()=>{let seen;const fetchImpl
 test('TMDB client filters people from multi-search',async()=>{const fetchImpl=async()=>({ok:true,json:async()=>({results:[{media_type:'person'},{media_type:'movie',id:1},{media_type:'tv',id:2}]})});const c=new TmdbClient('abc',fetchImpl);assert.equal((await c.searchMulti('x')).length,2)});
 test('TMDB client reports HTTP failures',async()=>{const fetchImpl=async()=>({ok:false,status:401,json:async()=>({status_message:'Invalid token'})});await assert.rejects(()=>new TmdbClient('x',fetchImpl).searchMulti('x'),e=>e instanceof TmdbError&&e.status===401)});
 test('TMDB client rejects missing token',async()=>{await assert.rejects(()=>new TmdbClient('',async()=>{}).searchMulti('x'),TmdbError)});
+test('TMDB supports v3 API-key fallback for direct development',async()=>{
+  let seen;
+  const client=new TmdbClient('',async (url, opts)=>{
+    seen={url:String(url),opts};
+    return {ok:true,json:async()=>({results:[{media_type:'movie',id:1},{media_type:'person',id:2}]})};
+  }, {apiKey:'test-key'});
+  assert.equal((await client.trending()).length,1);
+  assert.equal(new URL(seen.url).searchParams.get('api_key'),'test-key');
+  assert.equal(seen.opts.headers.Authorization,undefined);
+});
 test('TMDB image helper builds canonical poster URL',()=>{const c=new TmdbClient('x',async()=>{});assert.equal(c.image('/abc.jpg','w342'),'https://image.tmdb.org/t/p/w342/abc.jpg')});
