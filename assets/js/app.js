@@ -29,6 +29,14 @@ function setStatus(message = '', tone = 'info') {
   els.status.classList.toggle('is-visible', Boolean(message));
 }
 
+function showSnapshotNotice() {
+  if (!state.client?.usingSnapshot) return setStatus('');
+  const generated = state.client.snapshotGeneratedAt;
+  const dateText = generated && !Number.isNaN(Date.parse(generated))
+    ? new Date(generated).toLocaleDateString() : 'the last deployment';
+  setStatus(`TMDB is unreachable from this browser. Showing cached catalogue from ${dateText}. Search covers cached titles only.`, 'info');
+}
+
 function configureClient() {
   // Keep existing users working when their token is already saved locally.
   // New installations can use the explicit development-only configuration.
@@ -36,9 +44,10 @@ function configureClient() {
   const apiKey = DEV_TMDB_API_KEY.trim();
   const legacyToken = storage.getToken();
   // Prefer the explicit app configuration; legacy per-browser storage is only a fallback.
-  state.client = token || apiKey
-    ? new TmdbClient(token, fetch, { apiKey })
-    : (legacyToken ? new TmdbClient(legacyToken) : null);
+  state.client = new TmdbClient(token || legacyToken, fetch, {
+    apiKey,
+    catalogueUrl: './assets/data/tmdb-catalogue.json'
+  });
   els.searchBtn.disabled = !state.client;
 }
 
@@ -108,8 +117,10 @@ async function loadCatalogue() {
   try {
     const results = await state.client.trending(controller.signal);
     els.results.replaceChildren(...results.map(createCard));
-    els.summary.textContent = results.length ? 'Trending movies and TV shows from TMDB' : 'No titles returned.';
-    setStatus('');
+    els.summary.textContent = state.client.usingSnapshot
+      ? `Cached movies and TV shows (${results.length} titles)`
+      : (results.length ? 'Trending movies and TV shows from TMDB' : 'No titles returned.');
+    showSnapshotNotice();
   } catch (error) {
     if (error?.name !== 'AbortError') setStatus(error instanceof TmdbError ? error.message : 'Unable to load catalogue.', 'error');
   } finally { els.searchBtn.disabled = !state.client; }
@@ -126,8 +137,10 @@ async function performSearch(event) {
   try {
     const results = await state.client.searchMulti(query, controller.signal);
     els.results.replaceChildren(...results.map(createCard));
-    els.summary.textContent = results.length ? `${results.length} movie/TV result${results.length === 1 ? '' : 's'} for “${query}”` : `No movie or TV results for “${query}”.`;
-    setStatus('');
+    els.summary.textContent = results.length
+      ? `${results.length} movie/TV result${results.length === 1 ? '' : 's'} for “${query}”${state.client.usingSnapshot ? ' (cached)' : ''}`
+      : `No movie or TV results for “${query}”${state.client.usingSnapshot ? ' in the cached selection' : ''}.`;
+    showSnapshotNotice();
   } catch (error) {
     if (error.name !== 'AbortError') setStatus(error instanceof TmdbError ? error.message : 'Search failed.', 'error');
   } finally { els.searchBtn.disabled = !state.client; }
@@ -144,7 +157,7 @@ async function openDetails(item) {
     renderDetails(detail);
     if (item.media_type === 'tv') await setupSeasons(detail);
     else playActive();
-    setStatus('');
+    showSnapshotNotice();
   } catch (error) { setStatus(error.message || 'Unable to load title.', 'error'); }
 }
 
@@ -181,7 +194,7 @@ async function loadSeason(seasonNumber) {
       button.append(strong, span); button.addEventListener('click', () => playActive(seasonNumber, ep.episode_number)); return button;
     }));
     if (data.episodes?.length) playActive(seasonNumber, data.episodes[0].episode_number);
-    setStatus('');
+    showSnapshotNotice();
   } catch (error) { setStatus(error.message || 'Unable to load season.', 'error'); }
 }
 
@@ -318,5 +331,5 @@ els.tabs.forEach(tab => tab.addEventListener('click', () => switchTab(tab.datase
 
 configureClient(); renderLibrary(); switchTab('discover');
 if (!applyDeepLink() && state.client) loadCatalogue();
-if (!state.client) setStatus('Set direct development credentials in assets/js/dev-config.js to load the catalogue.', 'error');
+if (!state.client) setStatus('The catalogue could not be initialized.', 'error');
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) navigator.serviceWorker.register('./sw.js').catch(() => {});
